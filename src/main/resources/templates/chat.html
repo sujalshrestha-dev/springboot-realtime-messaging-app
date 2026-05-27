@@ -4,64 +4,60 @@
     <meta charset="UTF-8">
     <title>Real-Time Chat Application</title>
     <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stomp-websocket@2.3.4/lib/stomp.min.js"></script>
 </head>
 <body>
-   <div class="container mt-4">
-       <h1 class="text-center">Real-Time Chat Application</h1>
-       <div id="chat" class="border rounded p-3 mb-5" style="height: 300px; overflow-y: auto;">
-       </div>
-       <div class="input-group mb-3">
-           <input id="senderInput" type="text" class="form-control" placeholder="Your Name....">
-
-       </div>
-       <div class="input-group mb-3">
-           <input id="messageInput" type="text" class="form-control" placeholder="Message Input....">
-
-       </div>
-       <div id="input-group-append">
-           <button id="sendButton" type="button" class="btn btn-primary">Send</button>
-       </div>
-
-   </div>
+<div class="container mt-4">
+    <h1 class="text-center">Real-Time Chat Application</h1>
+    <div id="chat" class="border rounded p-3 mb-5" style="height: 300px; overflow-y: auto;"></div>
+    <div class="input-group mb-3">
+        <input id="senderInput" type="text" class="form-control" placeholder="Your Name....">
+    </div>
+    <div class="input-group mb-3">
+        <input id="messageInput" type="text" class="form-control" placeholder="Message Input....">
+    </div>
+    <div id="input-group-append">
+        <button id="sendButton" type="button" class="btn btn-primary">Send</button>
+    </div>
+</div>
 </body>
 
 <script>
+    var stompClient = null;
+
     function setConnected(connected) {
-        document.getElementById('sendMessage').disabled = !connected;
+        document.getElementById('sendButton').disabled = !connected;  // Fix #4
     }
+
+    function showMessage(message) {  // Fix #3: moved outside connect()
+        var chat = document.getElementById('chat');
+        var messageElement = document.createElement('div');
+        messageElement.textContent = message.sender + ": " + message.content;
+        messageElement.className = "border-bottom mb-1";  // Fix #6
+        chat.appendChild(messageElement);
+        chat.scrollTop = chat.scrollHeight;
+    }
+
+    function sendMessage() {  // Fix #3: moved outside connect()
+        var sender = document.getElementById('senderInput').value;
+        var content = document.getElementById('messageInput').value;
+        var chatMessage = { 'sender': sender, 'content': content };
+        stompClient.send("/app/sendMessage", {}, JSON.stringify(chatMessage));  // Fix #5
+        document.getElementById('messageInput').value = '';
+    }
+
     function connect() {
         var socket = new SockJS('/chat');
         stompClient = Stomp.over(socket);
         stompClient.connect({}, function(frame) {
             setConnected(true);
-            stompClient.subscribe('/topic/messages', function (message) {
+            stompClient.subscribe('/topic/messages', function(message) {
                 showMessage(JSON.parse(message.body));
             });
-        }):
-
-        function showMessage(message) {
-            var chat = document.getElementById('chat');
-            var messageElement = document.createElement('div');
-            messageElement.textContent = message.sender + ": " + message.content;
-            messageElement.class = "border-bottom mb-1";
-             chat.appendChild(messageElement);
-             chat.scrollTop = chat.scrollHeight;
-        }
-
-        function sendMessage() {
-            var sender = document.getElementById('senderInput').value;
-            var content = document.getElementById('messageInput').value;
-            var chatMessage = {
-                'sender': sender,
-                'content': content,
-              }
-              stompClient.send("app/sendMessage", {}, JSON.stringify(chatMessage));
-              document.getElementById('messageInput').value = '';
-        }
-
+        });  // Fix #2: was "):"
     }
-    document.getElementById('sendMessage').onClick = sendMessage;
+
+    document.getElementById('sendButton').onclick = sendMessage;  // Fix #4
     window.onload = connect;
 </script>
 </html>
