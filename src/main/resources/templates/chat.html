@@ -2,62 +2,463 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Real-Time Chat Application</title>
-    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/stomp-websocket@2.3.4/lib/stomp.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg-deep:            #0e0e0e;
+            --bg-header:          #1a1a1a;
+            --bg-input:           #1a1a1a;
+            --bg-bubble-theirs:   #2a2a2a;
+            --bg-bubble-mine:     #2563eb;
+            --bg-messages:        #111111;
+            --text-primary:       #f0f0f0;
+            --text-secondary:     #888;
+            --text-time:          #555;
+            --border:             #2a2a2a;
+            --online-dot:         #22c55e;
+            --accent:             #2563eb;
+        }
+
+        html, body {
+            height: 100%;
+            font-family: -apple-system, 'Helvetica Neue', sans-serif;
+            background: var(--bg-deep);
+            color: var(--text-primary);
+        }
+
+        .app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 960px;
+            margin: 0 auto;
+            background: var(--bg-deep);
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 20px;
+            background: var(--bg-header);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .header-avatar {
+            width: 42px; height: 42px;
+            border-radius: 50%;
+            background: #374151;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 13px; font-weight: 600;
+            color: #d1d5db;
+            flex-shrink: 0;
+        }
+
+        .header-info { flex: 1; }
+        .header-info .name { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+        .header-info .status {
+            font-size: 13px;
+            display: flex; align-items: center; gap: 5px; margin-top: 1px;
+        }
+        .header-info .status::before {
+            content: '';
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .header-info .status.connected { color: #22c55e; }
+        .header-info .status.connected::before { background: #22c55e; }
+        .header-info .status.disconnected { color: #ef4444; }
+        .header-info .status.disconnected::before { background: #ef4444; }
+
+        .header-actions { display: flex; align-items: center; gap: 22px; }
+        .header-actions button {
+            background: none; border: none; cursor: pointer;
+            color: var(--text-secondary); font-size: 20px; padding: 6px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 50%;
+            transition: color 0.15s, background 0.15s;
+        }
+        .header-actions button:hover { color: var(--text-primary); background: #2a2a2a; }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 20px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            background: var(--bg-messages);
+            scroll-behavior: smooth;
+        }
+        .messages::-webkit-scrollbar { width: 6px; }
+        .messages::-webkit-scrollbar-track { background: transparent; }
+        .messages::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+
+        .empty-state {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-time);
+            font-size: 14px;
+            gap: 10px;
+            user-select: none;
+        }
+        .empty-state svg { opacity: 0.3; }
+
+        .date-divider {
+            display: flex; align-items: center; gap: 12px;
+            margin: 12px 0;
+            font-size: 12px; color: var(--text-time);
+        }
+        .date-divider::before, .date-divider::after {
+            content: ''; flex: 1;
+            height: 1px; background: var(--border);
+        }
+
+        .msg-row {
+            display: flex;
+            align-items: flex-end;
+            gap: 10px;
+            margin-bottom: 10px;
+            animation: fadeUp 0.2s ease;
+        }
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(6px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .msg-row.mine { flex-direction: row-reverse; }
+
+        .msg-avatar {
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: 600;
+            flex-shrink: 0;
+            margin-bottom: 18px;
+        }
+
+        .msg-body { display: flex; flex-direction: column; max-width: 68%; }
+        .msg-row.mine .msg-body { align-items: flex-end; }
+
+        .sender-name {
+            font-size: 12px; color: var(--text-secondary);
+            margin-bottom: 4px; padding-left: 2px;
+        }
+
+        .bubble {
+            padding: 10px 14px;
+            font-size: 15px; line-height: 1.5;
+            border-radius: 18px;
+            word-break: break-word;
+        }
+        .bubble.theirs {
+            background: var(--bg-bubble-theirs);
+            color: var(--text-primary);
+            border-bottom-left-radius: 4px;
+        }
+        .bubble.mine {
+            background: var(--bg-bubble-mine);
+            color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+
+        .msg-meta {
+            display: flex; align-items: center; gap: 5px;
+            margin-top: 4px; padding: 0 2px;
+        }
+        .msg-time { font-size: 11px; color: var(--text-time); }
+        .msg-read { font-size: 11px; color: var(--text-time); }
+
+        .input-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            background: var(--bg-input);
+            border-top: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .input-bar input[type="text"] {
+            flex: 1;
+            padding: 10px 16px;
+            border-radius: 24px;
+            border: none;
+            background: #252525;
+            color: var(--text-primary);
+            font-size: 15px;
+            font-family: inherit;
+            outline: none;
+            transition: background 0.15s;
+        }
+        .input-bar input[type="text"]:focus { background: #2e2e2e; }
+        .input-bar input[type="text"]::placeholder { color: var(--text-time); }
+
+        #senderInput { max-width: 130px; }
+
+        .icon-btn {
+            background: none; border: none; cursor: pointer;
+            color: var(--text-secondary);
+            padding: 6px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            transition: color 0.15s, background 0.15s;
+            flex-shrink: 0;
+        }
+        .icon-btn:hover { color: var(--text-primary); background: #252525; }
+
+        .send-btn {
+            width: 40px; height: 40px;
+            border-radius: 50%;
+            background: var(--accent);
+            border: none; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            color: #fff;
+            flex-shrink: 0;
+            transition: background 0.15s, transform 0.1s;
+        }
+        .send-btn:hover { background: #1d4ed8; }
+        .send-btn:active { transform: scale(0.93); }
+
+        .toast {
+            position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+            background: #1f2937; color: #9ca3af;
+            padding: 8px 18px; border-radius: 20px;
+            font-size: 13px; opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            white-space: nowrap;
+            z-index: 999;
+        }
+        .toast.show { opacity: 1; }
+    </style>
 </head>
 <body>
-<div class="container mt-4">
-    <h1 class="text-center">Real-Time Chat Application</h1>
-    <div id="chat" class="border rounded p-3 mb-5" style="height: 300px; overflow-y: auto;"></div>
-    <div class="input-group mb-3">
-        <input id="senderInput" type="text" class="form-control" placeholder="Your Name....">
+
+<div class="app">
+
+    <div class="header">
+        <div class="header-avatar">GC</div>
+        <div class="header-info">
+            <div class="name">Group Chat</div>
+            <div class="status disconnected" id="statusEl">Connecting...</div>
+        </div>
+        <div class="header-actions">
+            <button title="Voice call">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.48 12a19.79 19.79 0 0 1-3-8.59A2 2 0 0 1 3.41 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.29 6.29l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            </button>
+            <button title="Video call">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+            </button>
+            <button title="More options">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+            </button>
+        </div>
     </div>
-    <div class="input-group mb-3">
-        <input id="messageInput" type="text" class="form-control" placeholder="Message Input....">
+
+    <div class="messages" id="chat">
+        <div class="empty-state" id="emptyState">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span>No messages yet. Say hello!</span>
+        </div>
     </div>
-    <div id="input-group-append">
-        <button id="sendButton" type="button" class="btn btn-primary">Send</button>
+
+    <div class="input-bar">
+        <input type="text" id="senderInput" placeholder="Your name" autocomplete="off" />
+        <button class="icon-btn" title="Emoji">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+        </button>
+        <input type="text" id="messageInput" placeholder="Type a message..." autocomplete="off" />
+        <button class="icon-btn" title="Attach">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        </button>
+        <button class="send-btn" id="sendButton" title="Send">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
     </div>
+
 </div>
-</body>
+
+<div class="toast" id="toast"></div>
 
 <script>
     var stompClient = null;
+    var dateShown = false;
 
-    function setConnected(connected) {
-        document.getElementById('sendButton').disabled = !connected;  // Fix #4
+    var colorPalette = [
+        { bg: '#1e3a2e', color: '#4ade80' },
+        { bg: '#2d2010', color: '#fb923c' },
+        { bg: '#2d1a2a', color: '#e879f9' },
+        { bg: '#1a2a3a', color: '#60a5fa' },
+        { bg: '#2a1a1a', color: '#f87171' },
+        { bg: '#1e1a3a', color: '#a78bfa' },
+    ];
+    var colorMap = {};
+    var colorIdx = 0;
+
+    function getColor(name) {
+        if (!colorMap[name]) {
+            colorMap[name] = colorPalette[colorIdx++ % colorPalette.length];
+        }
+        return colorMap[name];
     }
 
-    function showMessage(message) {  // Fix #3: moved outside connect()
+    function getInitials(name) {
+        return (name || '?').trim().split(/\s+/).map(function(w){ return w[0]; }).join('').toUpperCase().slice(0, 2);
+    }
+
+    function getTime() {
+        var d = new Date();
+        var h = d.getHours(), m = d.getMinutes();
+        var ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        return h + ':' + (m < 10 ? '0' + m : m) + ' ' + ampm;
+    }
+
+    function showToast(msg, duration) {
+        var t = document.getElementById('toast');
+        t.textContent = msg;
+        t.classList.add('show');
+        setTimeout(function(){ t.classList.remove('show'); }, duration || 2500);
+    }
+
+    function setStatus(connected) {
+        var el = document.getElementById('statusEl');
+        if (connected) {
+            el.textContent = 'Connected';
+            el.className = 'status connected';
+        } else {
+            el.textContent = 'Disconnected';
+            el.className = 'status disconnected';
+        }
+    }
+
+    function showMessage(message) {
         var chat = document.getElementById('chat');
-        var messageElement = document.createElement('div');
-        messageElement.textContent = message.sender + ": " + message.content;
-        messageElement.className = "border-bottom mb-1";  // Fix #6
-        chat.appendChild(messageElement);
+        var myName = document.getElementById('senderInput').value.trim();
+        var isMine = message.sender === myName;
+
+        var empty = document.getElementById('emptyState');
+        if (empty) empty.remove();
+
+        if (!dateShown) {
+            var divider = document.createElement('div');
+            divider.className = 'date-divider';
+            divider.textContent = 'Today';
+            chat.appendChild(divider);
+            dateShown = true;
+        }
+
+        var c = getColor(message.sender);
+
+        var row = document.createElement('div');
+        row.className = 'msg-row' + (isMine ? ' mine' : '');
+
+        var av = document.createElement('div');
+        av.className = 'msg-avatar';
+        av.style.background = isMine ? '#1e2a4a' : c.bg;
+        av.style.color = isMine ? '#93c5fd' : c.color;
+        av.textContent = isMine ? 'Me' : getInitials(message.sender);
+
+        var body = document.createElement('div');
+        body.className = 'msg-body';
+
+        if (!isMine) {
+            var nameEl = document.createElement('div');
+            nameEl.className = 'sender-name';
+            nameEl.textContent = message.sender;
+            body.appendChild(nameEl);
+        }
+
+        var bubble = document.createElement('div');
+        bubble.className = 'bubble ' + (isMine ? 'mine' : 'theirs');
+        bubble.textContent = message.content;
+        body.appendChild(bubble);
+
+        var meta = document.createElement('div');
+        meta.className = 'msg-meta';
+
+        var timeEl = document.createElement('span');
+        timeEl.className = 'msg-time';
+        timeEl.textContent = getTime();
+        meta.appendChild(timeEl);
+
+        if (isMine) {
+            var readEl = document.createElement('span');
+            readEl.className = 'msg-read';
+            readEl.textContent = '✓ Sent';
+            meta.appendChild(readEl);
+        }
+
+        body.appendChild(meta);
+        row.appendChild(av);
+        row.appendChild(body);
+        chat.appendChild(row);
         chat.scrollTop = chat.scrollHeight;
     }
 
-    function sendMessage() {  // Fix #3: moved outside connect()
-        var sender = document.getElementById('senderInput').value;
-        var content = document.getElementById('messageInput').value;
-        var chatMessage = { 'sender': sender, 'content': content };
-        stompClient.send("/app/sendMessage", {}, JSON.stringify(chatMessage));  // Fix #5
-        document.getElementById('messageInput').value = '';
+    function sendMessage() {
+        var sender = document.getElementById('senderInput').value.trim();
+        var content = document.getElementById('messageInput').value.trim();
+
+        if (!sender) { showToast('Please enter your name first.'); return; }
+        if (!content) return;
+
+        if (stompClient && stompClient.connected) {
+            stompClient.publish({
+                destination: '/app/sendMessage',
+                body: JSON.stringify({ sender: sender, content: content })
+            });
+            document.getElementById('messageInput').value = '';
+        } else {
+            showToast('Not connected. Retrying...');
+            connect();
+        }
     }
 
     function connect() {
-        var socket = new SockJS('/chat');
-        stompClient = Stomp.over(socket);
-        stompClient.connect({}, function(frame) {
-            setConnected(true);
-            stompClient.subscribe('/topic/messages', function(message) {
-                showMessage(JSON.parse(message.body));
-            });
-        });  // Fix #2: was "):"
+        setStatus(false);
+
+        stompClient = new StompJs.Client({
+            webSocketFactory: function() {
+                return new SockJS('/ws');
+            },
+            debug: function() {},
+            reconnectDelay: 3000,
+            onConnect: function(frame) {
+                setStatus(true);
+                stompClient.subscribe('/topic/messages', function(message) {
+                    showMessage(JSON.parse(message.body));
+                });
+            },
+            onDisconnect: function() {
+                setStatus(false);
+            },
+            onStompError: function(frame) {
+                setStatus(false);
+                showToast('Connection error. Retrying...', 3000);
+            }
+        });
+
+        stompClient.activate();
     }
 
-    document.getElementById('sendButton').onclick = sendMessage;  // Fix #4
+    document.getElementById('sendButton').onclick = sendMessage;
+
+    document.getElementById('messageInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') sendMessage();
+    });
+
     window.onload = connect;
 </script>
+
+</body>
 </html>
